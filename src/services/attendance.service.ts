@@ -65,14 +65,11 @@ export function calculateAttendanceHoursAndStatus(
   }
 
   const checkIn = parseTimeToDate(dateStr, checkInTime);
-  let checkOut = parseTimeToDate(dateStr, checkOutTime);
+  const checkOut = parseTimeToDate(dateStr, checkOutTime);
 
-  // If checkOut is earlier than checkIn, check if it crosses midnight
+  // Time Inversion check: checkOut must not be earlier than checkIn
   if (checkOut.getTime() < checkIn.getTime()) {
-    // Check if next day
-    const nextDay = new Date(checkOut);
-    nextDay.setUTCDate(nextDay.getUTCDate() + 1);
-    checkOut = nextDay;
+    throw new Error("Validation error: checkOut time cannot be earlier than checkIn time.");
   }
 
   const durationMs = checkOut.getTime() - checkIn.getTime();
