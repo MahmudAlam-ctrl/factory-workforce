@@ -151,7 +151,7 @@ export default async function DashboardPage() {
             <span className="text-xs text-slate-500">hours logged</span>
           </div>
           <p className="text-[11px] text-amber-700 font-medium mt-2">
-            ৳{mtdOTPay.toLocaleString("en-US", { minimumFractionDigits: 2 })} (2.0x RMG rate)
+            ৳{mtdOTPay.toLocaleString("en-US", { minimumFractionDigits: 2 })} (1.5x standard OT)
           </p>
         </div>
 

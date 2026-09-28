@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { saveBulkAttendance } from "@/app/actions/attendance-actions";
 import { AttendanceStatus } from "@prisma/client";
 import {
@@ -245,10 +246,32 @@ export function AttendanceSheet({ dateStr, initialRows }: AttendanceSheetProps) 
           >
             All Absent
           </button>
+          <Link
+            href="/devices"
+            className="inline-flex items-center space-x-1 px-3 py-2 text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition"
+            title="Manage biometric machines and pull punches"
+          >
+            <span>Sync Device</span>
+          </Link>
+          <a
+            href={`/api/export/excel?type=attendance&date=${dateStr}`}
+            download
+            className="px-3 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition"
+          >
+            Export Excel
+          </a>
+          <a
+            href={`/api/export/pdf?type=attendance&date=${dateStr}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="px-3 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition"
+          >
+            Export PDF
+          </a>
           <button
             onClick={handleSave}
             disabled={isPending}
-            className="inline-flex items-center space-x-2 px-5 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm transition disabled:opacity-50"
+            className="inline-flex items-center space-x-2 px-4 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm transition disabled:opacity-50"
           >
             <Save className="w-4 h-4" />
             <span>Save Attendance</span>

@@ -209,9 +209,9 @@ async function runTests() {
   }
 
   // ---------------------------------------------------------------------------
-  // TEST 4: Overtime & Statutory 2.0x Rate Verification
+  // TEST 4: Overtime & Statutory 1.5x Rate Verification
   // ---------------------------------------------------------------------------
-  console.log("[RUNNING] Test 4: Overtime & Statutory 2.0x Rate Verification...");
+  console.log("[RUNNING] Test 4: Overtime & Statutory 1.5x Rate Verification...");
   try {
     // Worker logs 10.5 working hours (08:00 to 19:30 with 60m break = 10.5 hours net)
     const otCalc = calculateAttendanceHoursAndStatus({
@@ -230,25 +230,25 @@ async function runTests() {
     const hourlyRate = 72.12;
     const baseSalary = 15000;
     const expectedOTHours = 2.5;
-    const expectedOTPay = Math.round(expectedOTHours * hourlyRate * 2.0 * 100) / 100; // 360.60
+    const expectedOTPay = Math.round(expectedOTHours * hourlyRate * 1.5 * 100) / 100; // 270.45
 
     const otHoursMatch = otCalc.overtimeHours === expectedOTHours;
-    const otPayMatch = expectedOTPay === 360.6;
+    const otPayMatch = expectedOTPay === 270.45;
 
     const passed = otHoursMatch && otPayMatch;
 
     results.push({
       id: 4,
-      name: "Overtime & Statutory 2.0x Rate",
-      expected: "OT Hours = 2.50, Gross OT addition = 360.60 (2.50 * 72.12 * 2.0)",
+      name: "Overtime & Statutory 1.5x Rate",
+      expected: "OT Hours = 2.50, Gross OT addition = 270.45 (2.50 * 72.12 * 1.50)",
       actual: `OT Hours = ${otCalc.overtimeHours.toFixed(2)}, Computed OT Pay = ${expectedOTPay.toFixed(2)}`,
       passed,
     });
   } catch (e: any) {
     results.push({
       id: 4,
-      name: "Overtime & Statutory 2.0x Rate",
-      expected: "OT Hours = 2.50, Gross OT addition = 360.60",
+      name: "Overtime & Statutory 1.5x Rate",
+      expected: "OT Hours = 2.50, Gross OT addition = 270.45",
       actual: `Error: ${e.message}`,
       passed: false,
     });
@@ -365,6 +365,130 @@ async function runTests() {
   }
 
   // ---------------------------------------------------------------------------
+  // TEST 7: Biometric ZKTeco Adapter & Device Sync Engine
+  // ---------------------------------------------------------------------------
+  console.log("[RUNNING] Test 7: Biometric ZKTeco Adapter & Device Sync Engine...");
+  try {
+    // 1. Create or get test biometric device configured with mock mode enabled
+    let testDevice = await db.attendanceDevice.findFirst({
+      where: { ipAddress: "192.168.1.201" },
+    });
+
+    if (!testDevice) {
+      testDevice = await db.attendanceDevice.create({
+        data: {
+          name: "QA-Test-ZKTeco-K40",
+          deviceType: "ZKTECO",
+          model: "K40 Pro",
+          ipAddress: "192.168.1.201",
+          port: 4370,
+          isMockMode: true,
+          isEnabled: true,
+        },
+      });
+    }
+
+    // 2. Ensure test mapping exists for EMP-1001
+    await db.attendanceDeviceMapping.upsert({
+      where: {
+        deviceId_deviceUserId: {
+          deviceId: testDevice.id,
+          deviceUserId: "1001",
+        },
+      },
+      update: { employeeId: testEmp.id },
+      create: {
+        deviceId: testDevice.id,
+        deviceUserId: "1001",
+        employeeId: testEmp.id,
+      },
+    });
+
+    // 3. Test adapter connection
+    const { getDeviceAdapter, syncDeviceAttendance } = await import("../src/services/devices/device.service");
+    const adapter = getDeviceAdapter(testDevice);
+    const connResult = await adapter.testConnection(testDevice);
+
+    // 4. Run sync
+    const syncResult = await syncDeviceAttendance(testDevice.id);
+
+    // 5. Verify staging records and source tagging
+    const stagedPunches = await db.attendancePunchRaw.findMany({
+      where: { deviceId: testDevice.id },
+    });
+
+    const passed =
+      connResult.success &&
+      connResult.isMock === true &&
+      syncResult.success &&
+      stagedPunches.length > 0;
+
+    results.push({
+      id: 7,
+      name: "ZKTeco Biometric Adapter & Sync Engine",
+      expected: "Mock testConnection passes; sync stages raw punches with eventKey deduplication",
+      actual: passed
+        ? `Connected (isMock=${connResult.isMock}). Staged ${stagedPunches.length} raw punches, synced ${syncResult.punchesProcessed} records.`
+        : `Failed: ConnSuccess=${connResult.success}, SyncSuccess=${syncResult.success}`,
+      passed,
+    });
+  } catch (e: any) {
+    results.push({
+      id: 7,
+      name: "ZKTeco Biometric Adapter & Sync Engine",
+      expected: "Mock testConnection passes; sync stages raw punches",
+      actual: `Error: ${e.message}`,
+      passed: false,
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // TEST 8: Dynamic Payroll Rules & Audit Logging
+  // ---------------------------------------------------------------------------
+  console.log("[RUNNING] Test 8: Dynamic Payroll Rules & Audit Logging...");
+  try {
+    const { getActivePayrollRule } = await import("../src/services/rules.service");
+    const { logAuditAction } = await import("../src/services/audit.service");
+
+    const activeRule = await getActivePayrollRule();
+
+    // Log a test audit action
+    await logAuditAction({
+      action: "QA_VERIFICATION_TEST",
+      entity: "PayrollRule",
+      entityId: activeRule.id,
+      metadata: { testSuite: "qa-stress-test", multiplier: activeRule.overtimeMultiplier },
+    });
+
+    const recentAudit = await db.auditLog.findFirst({
+      where: { action: "QA_VERIFICATION_TEST" },
+      orderBy: { createdAt: "desc" },
+    });
+
+    const ruleValid = activeRule.overtimeMultiplier === 1.5 && activeRule.standardWorkingDays === 26;
+    const auditValid = recentAudit !== null;
+    const passed = ruleValid && auditValid;
+
+    results.push({
+      id: 8,
+      name: "Dynamic Payroll Rules & Audit Logging",
+      expected: "Default active rule is 1.5x / 26 days; audit log entries recorded in database",
+      actual: passed
+        ? `Rule multiplier=${activeRule.overtimeMultiplier}x, days=${activeRule.standardWorkingDays}. Audit record found: ${recentAudit?.id}`
+        : `RuleValid=${ruleValid} (multiplier=${activeRule.overtimeMultiplier}), AuditValid=${auditValid}`,
+      passed,
+    });
+  } catch (e: any) {
+    results.push({
+      id: 8,
+      name: "Dynamic Payroll Rules & Audit Logging",
+      expected: "Default active rule is 1.5x / 26 days; audit log entries recorded",
+      actual: `Error: ${e.message}`,
+      passed: false,
+    });
+  }
+
+  // ---------------------------------------------------------------------------
   // PRINT VERDICT TABLE
   // ---------------------------------------------------------------------------
   console.log("\n================================================================================");
@@ -380,7 +504,7 @@ async function runTests() {
   }
 
   const allPassed = results.every((r) => r.passed);
-  console.log(`\nFINAL VERDICT: ${allPassed ? "ALL 6 TESTS PASSED (100%)" : "SOME TESTS FAILED"}\n`);
+  console.log(`\nFINAL VERDICT: ${allPassed ? "ALL 8 TESTS PASSED (100%)" : "SOME TESTS FAILED"}\n`);
 
   if (!allPassed) {
     process.exit(1);

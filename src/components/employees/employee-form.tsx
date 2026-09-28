@@ -249,7 +249,7 @@ export function EmployeeForm({ initialData, shifts }: EmployeeFormProps) {
               className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500"
             />
             <span className="text-[11px] text-slate-400 mt-1 block">
-              Auto: (Base / 208 hrs). Multiplied by 2.0x for OT
+              Auto: (Base / 208 hrs). Multiplied by 1.5x for OT
             </span>
           </div>
 

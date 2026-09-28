@@ -15,6 +15,7 @@ import {
   AlertCircle,
   ChevronDown,
   ChevronUp,
+  FileText,
 } from "lucide-react";
 
 interface PayrollTableProps {
@@ -114,10 +115,27 @@ export function PayrollTable({ year, month, rows }: PayrollTableProps) {
         </div>
 
         <div className="flex items-center space-x-3">
+          <a
+            href={`/api/export/excel?type=payroll&year=${year}&month=${month}`}
+            download
+            className="inline-flex items-center space-x-1 px-3 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition"
+          >
+            <span>Export Excel</span>
+          </a>
+
+          <a
+            href={`/api/export/pdf?type=payroll&year=${year}&month=${month}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center space-x-1 px-3 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition"
+          >
+            <span>Export PDF</span>
+          </a>
+
           <button
             onClick={() => handleSnapshot(PayrollStatus.DRAFT)}
             disabled={isPending || isMonthApproved}
-            className="inline-flex items-center space-x-1.5 px-3.5 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition disabled:opacity-50"
+            className="inline-flex items-center space-x-1.5 px-3 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition disabled:opacity-50"
             title="Recalculate and update draft summary"
           >
             <RefreshCw className="w-3.5 h-3.5" />
@@ -127,14 +145,14 @@ export function PayrollTable({ year, month, rows }: PayrollTableProps) {
           <button
             onClick={() => handleSnapshot(PayrollStatus.APPROVED)}
             disabled={isPending || isMonthApproved}
-            className={`inline-flex items-center space-x-2 px-4 py-2 text-xs font-semibold rounded-lg shadow-sm transition ${
+            className={`inline-flex items-center space-x-2 px-3.5 py-2 text-xs font-semibold rounded-lg shadow-sm transition ${
               isMonthApproved
                 ? "bg-emerald-100 text-emerald-800 cursor-not-allowed border border-emerald-300"
                 : "bg-emerald-600 hover:bg-emerald-700 text-white"
             }`}
           >
             <Lock className="w-3.5 h-3.5" />
-            <span>{isMonthApproved ? "Month Locked (Approved)" : "Approve & Lock Month"}</span>
+            <span>{isMonthApproved ? "Month Locked (Approved)" : "Approve & Lock"}</span>
           </button>
         </div>
       </div>
@@ -158,7 +176,7 @@ export function PayrollTable({ year, month, rows }: PayrollTableProps) {
             ৳{totalOTPay.toLocaleString("en-US", { minimumFractionDigits: 2 })}
           </span>
           <span className="text-[11px] text-amber-600 font-medium">
-            {totalOTHours.toFixed(1)} hrs total (2.0x standard rate)
+            {totalOTHours.toFixed(1)} hrs total ({rows[0]?.overtimeMultiplier || 1.5}x standard rate)
           </span>
         </div>
 
@@ -206,10 +224,11 @@ export function PayrollTable({ year, month, rows }: PayrollTableProps) {
                 <th className="px-4 py-3.5 text-right">Base Salary</th>
                 <th className="px-4 py-3.5 text-center">Attendance</th>
                 <th className="px-4 py-3.5 text-center">OT Hours</th>
-                <th className="px-4 py-3.5 text-right">OT Pay (2.0x)</th>
+                <th className="px-4 py-3.5 text-right">OT Pay ({rows[0]?.overtimeMultiplier || 1.5}x)</th>
                 <th className="px-4 py-3.5 text-right">Deductions</th>
                 <th className="px-4 py-3.5 text-right">Net Payable</th>
                 <th className="px-4 py-3.5 text-center">Status</th>
+                <th className="px-4 py-3.5 text-center">Slip</th>
                 <th className="px-4 py-3.5 text-center">Details</th>
               </tr>
             </thead>
@@ -278,6 +297,18 @@ export function PayrollTable({ year, month, rows }: PayrollTableProps) {
                     </td>
 
                     <td className="px-4 py-3 text-center">
+                      <a
+                        href={`/api/export/pdf?type=slip&employeeId=${row.employeeId}&year=${year}&month=${month}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex p-1 text-indigo-600 hover:text-indigo-800 transition"
+                        title="Download Individual Pay Slip PDF"
+                      >
+                        <FileText className="w-4 h-4" />
+                      </a>
+                    </td>
+
+                    <td className="px-4 py-3 text-center">
                       <button
                         onClick={() => setExpandedId(isExpanded ? null : row.employeeId)}
                         className="text-slate-400 hover:text-indigo-600 p-1"
@@ -320,18 +351,20 @@ export function PayrollTable({ year, month, rows }: PayrollTableProps) {
             return (
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 font-mono">
                 <div className="p-3 bg-slate-800/60 rounded-lg">
-                  <span className="text-slate-400 block mb-1">1. Overtime Formula (2.0x RMG Rate)</span>
+                  <span className="text-slate-400 block mb-1">
+                    1. Overtime Formula ({item.overtimeMultiplier || 1.5}x Standard Rate)
+                  </span>
                   <p>OT Hours: {item.totalOvertimeHours}h</p>
                   <p>Base Hourly Rate: ৳{item.hourlyRate.toFixed(2)}/h</p>
                   <p className="text-amber-400 mt-1">
-                    OT Pay = {item.totalOvertimeHours} × ৳{item.hourlyRate.toFixed(2)} × 2.0 = ৳
+                    OT Pay = {item.totalOvertimeHours} × ৳{item.hourlyRate.toFixed(2)} × {item.overtimeMultiplier || 1.5} = ৳
                     {item.overtimePay.toFixed(2)}
                   </p>
                 </div>
 
                 <div className="p-3 bg-slate-800/60 rounded-lg">
                   <span className="text-slate-400 block mb-1">2. Absence Deductions</span>
-                  <p>Daily Rate: ৳{item.baseSalary} ÷ 26 = ৳{(item.baseSalary / 26).toFixed(2)}/day</p>
+                  <p>Daily Rate: ৳{item.baseSalary} ÷ {item.totalWorkingDays} = ৳{(item.baseSalary / item.totalWorkingDays).toFixed(2)}/day</p>
                   <p>Absent Days: {item.absentDays} | Half Days: {item.halfDays}</p>
                   <p className="text-rose-400 mt-1">
                     Deductions = ৳{item.deductions.toFixed(2)}

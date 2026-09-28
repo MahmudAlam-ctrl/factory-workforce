@@ -9,6 +9,9 @@ import {
   CalendarCheck,
   Calculator,
   Factory,
+  Sliders,
+  Cpu,
+  History,
 } from "lucide-react";
 
 const navigation = [
@@ -17,6 +20,9 @@ const navigation = [
   { name: "Daily Attendance", href: "/attendance", icon: CalendarCheck },
   { name: "Shifts", href: "/shifts", icon: Clock },
   { name: "Payroll Summary", href: "/payroll", icon: Calculator },
+  { name: "Payroll Rules", href: "/rules", icon: Sliders },
+  { name: "Attendance Devices", href: "/devices", icon: Cpu },
+  { name: "Audit Logs", href: "/audit", icon: History },
 ];
 
 export function Sidebar() {
@@ -32,7 +38,7 @@ export function Sidebar() {
           <h1 className="font-bold text-base leading-tight tracking-wide text-white">
             FactoryWorkforce
           </h1>
-          <p className="text-xs text-slate-400 font-medium">Garment MVP v0.1</p>
+          <p className="text-xs text-slate-400 font-medium">Garment ERP v0.2</p>
         </div>
       </div>
 
@@ -58,13 +64,6 @@ export function Sidebar() {
           );
         })}
       </nav>
-
-      <div className="p-4 border-t border-slate-800 text-xs text-slate-400">
-        <div className="bg-slate-800/60 rounded-md p-2.5 border border-slate-700/50">
-          <p className="font-medium text-slate-300">Shift Multiplier</p>
-          <p className="text-emerald-400 font-semibold mt-0.5">2.0x Standard OT</p>
-        </div>
-      </div>
     </aside>
   );
 }

@@ -83,13 +83,39 @@ export function EmployeeTable({
           </div>
         </div>
 
-        <Link
-          href="/employees/new"
-          className="inline-flex items-center space-x-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-medium transition shadow-sm w-full sm:w-auto justify-center"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Add Employee</span>
-        </Link>
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+          <Link
+            href="/employees/import"
+            className="inline-flex items-center space-x-1.5 px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg text-xs font-semibold transition"
+          >
+            <span>Import Excel</span>
+          </Link>
+
+          <a
+            href="/api/export/excel?type=employees"
+            download
+            className="inline-flex items-center space-x-1 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold transition"
+          >
+            <span>Export Excel</span>
+          </a>
+
+          <a
+            href="/api/export/pdf?type=employees"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center space-x-1 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold transition"
+          >
+            <span>Export PDF</span>
+          </a>
+
+          <Link
+            href="/employees/new"
+            className="inline-flex items-center space-x-2 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold transition shadow-sm"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>Add Employee</span>
+          </Link>
+        </div>
       </div>
 
       {/* Table */}

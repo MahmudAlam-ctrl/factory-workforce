@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { AttendanceStatus, PayrollStatus } from "@prisma/client";
+import { getActivePayrollRule } from "@/services/rules.service";
 
 export interface EmployeePayrollCalculation {
   employeeId: string;
@@ -18,6 +19,7 @@ export interface EmployeePayrollCalculation {
   totalOvertimeHours: number;
   baseSalary: number;
   hourlyRate: number;
+  overtimeMultiplier: number;
   overtimePay: number;
   deductions: number;
   netPay: number;
@@ -31,13 +33,18 @@ export async function calculateMonthlyPayroll(
   const startDate = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0));
   const endDate = new Date(Date.UTC(year, month, 0, 23, 59, 59));
 
-  // 1. Fetch active employees
+  // 1. Fetch active rule for standard working days and overtime multiplier (1.5x)
+  const activeRule = await getActivePayrollRule();
+  const defaultMultiplier = activeRule.overtimeMultiplier || 1.5;
+  const standardWorkingDays = activeRule.standardWorkingDays || 26;
+
+  // 2. Fetch active employees
   const employees = await db.employee.findMany({
     where: { status: "ACTIVE" },
     orderBy: { employeeCode: "asc" },
   });
 
-  // 2. Fetch all attendance records in range
+  // 3. Fetch all attendance records in range
   const attendanceRecords = await db.attendanceRecord.findMany({
     where: {
       date: {
@@ -55,13 +62,11 @@ export async function calculateMonthlyPayroll(
     attendanceByEmp.set(rec.employeeId, list);
   }
 
-  // 3. Fetch any existing locked/draft payroll summaries
+  // 4. Fetch any existing locked/draft payroll summaries
   const existingSummaries = await db.payrollSummary.findMany({
     where: { year, month },
   });
   const summaryMap = new Map(existingSummaries.map((s) => [s.employeeId, s]));
-
-  const totalWorkingDays = 26; // Standard industrial factory working days
 
   return employees.map((emp) => {
     const records = attendanceByEmp.get(emp.id) || [];
@@ -79,7 +84,7 @@ export async function calculateMonthlyPayroll(
         presentDays++;
       } else if (r.status === AttendanceStatus.LATE) {
         lateDays++;
-        presentDays++; // Late arrivals still count as present
+        presentDays++; // Late arrivals count as present
       } else if (r.status === AttendanceStatus.HALF_DAY) {
         halfDays++;
       } else if (r.status === AttendanceStatus.ABSENT) {
@@ -93,10 +98,16 @@ export async function calculateMonthlyPayroll(
     const baseSalary = Number(emp.baseSalary);
     const hourlyRate = Number(emp.hourlyRate);
 
-    // Overtime pay: OT Hours * Hourly Rate * 2.0 (approved standard)
-    const overtimePay = Math.round(totalOvertimeHours * hourlyRate * 2.0 * 100) / 100;
+    // If locked/approved in DB, preserve historical multiplier; otherwise use active rule (1.5x)
+    const effectiveMultiplier = existing && existing.status === PayrollStatus.APPROVED
+      ? Number(existing.overtimeMultiplier)
+      : defaultMultiplier;
+
+    // Overtime pay: OT Hours * Hourly Rate * 1.5 (or locked multiplier)
+    const overtimePay = Math.round(totalOvertimeHours * hourlyRate * effectiveMultiplier * 100) / 100;
 
     // Deductions for unexcused absent days and half days
+    const totalWorkingDays = existing?.totalWorkingDays || standardWorkingDays;
     const dailyRate = baseSalary / totalWorkingDays;
     const deductions = Math.round((absentDays * dailyRate + halfDays * (dailyRate / 2)) * 100) / 100;
 
@@ -120,6 +131,7 @@ export async function calculateMonthlyPayroll(
       totalOvertimeHours: Math.round(totalOvertimeHours * 100) / 100,
       baseSalary,
       hourlyRate,
+      overtimeMultiplier: effectiveMultiplier,
       overtimePay,
       deductions,
       netPay,

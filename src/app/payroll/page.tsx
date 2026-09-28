@@ -21,7 +21,7 @@ export default async function PayrollPage({
           Monthly Payroll Summary
         </h2>
         <p className="text-sm text-slate-500">
-          Automated wage disbursement calculation based on daily attendance, overtime (2.0x RMG multiplier), and unexcused absence deductions.
+          Automated wage disbursement calculation based on daily attendance, statutory overtime (1.5x multiplier), and unexcused absence deductions.
         </p>
       </div>
 

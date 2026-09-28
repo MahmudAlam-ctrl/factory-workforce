@@ -1,6 +1,7 @@
 "use server";
 
 import { db } from "@/lib/db";
+import { logAuditAction } from "@/services/audit.service";
 import { EmployeeStatus } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
@@ -9,6 +10,7 @@ const EmployeeSchema = z.object({
   employeeCode: z.string().min(3, "Employee Code must be at least 3 characters"),
   firstName: z.string().min(2, "First name is required"),
   lastName: z.string().min(1, "Last name is required"),
+  phone: z.string().optional().nullable(),
   department: z.string().min(2, "Department is required"),
   designation: z.string().min(2, "Designation is required"),
   joiningDate: z.string().default(() => new Date().toISOString()),
@@ -23,6 +25,7 @@ export async function createEmployee(formData: FormData) {
       employeeCode: formData.get("employeeCode"),
       firstName: formData.get("firstName"),
       lastName: formData.get("lastName"),
+      phone: formData.get("phone") || null,
       department: formData.get("department"),
       designation: formData.get("designation"),
       joiningDate: formData.get("joiningDate") || new Date().toISOString().split("T")[0],
@@ -42,11 +45,12 @@ export async function createEmployee(formData: FormData) {
       return { success: false, error: `Employee code "${parsed.employeeCode}" is already taken.` };
     }
 
-    await db.employee.create({
+    const created = await db.employee.create({
       data: {
         employeeCode: parsed.employeeCode,
         firstName: parsed.firstName,
         lastName: parsed.lastName,
+        phone: parsed.phone || null,
         department: parsed.department,
         designation: parsed.designation,
         joiningDate: new Date(parsed.joiningDate),
@@ -55,6 +59,13 @@ export async function createEmployee(formData: FormData) {
         shiftId: parsed.shiftId || null,
         status: EmployeeStatus.ACTIVE,
       },
+    });
+
+    await logAuditAction({
+      action: "EMPLOYEE_CREATE",
+      entity: "Employee",
+      entityId: created.id,
+      metadata: { employeeCode: created.employeeCode, name: `${created.firstName} ${created.lastName}` },
     });
 
     revalidatePath("/employees");
@@ -75,6 +86,7 @@ export async function updateEmployee(id: string, formData: FormData) {
       employeeCode: formData.get("employeeCode"),
       firstName: formData.get("firstName"),
       lastName: formData.get("lastName"),
+      phone: formData.get("phone") || null,
       department: formData.get("department"),
       designation: formData.get("designation"),
       joiningDate: formData.get("joiningDate"),
@@ -84,15 +96,15 @@ export async function updateEmployee(id: string, formData: FormData) {
     };
 
     const parsed = EmployeeSchema.parse(rawData);
-
     const statusVal = formData.get("status") === "INACTIVE" ? EmployeeStatus.INACTIVE : EmployeeStatus.ACTIVE;
 
-    await db.employee.update({
+    const updated = await db.employee.update({
       where: { id },
       data: {
         employeeCode: parsed.employeeCode,
         firstName: parsed.firstName,
         lastName: parsed.lastName,
+        phone: parsed.phone || null,
         department: parsed.department,
         designation: parsed.designation,
         joiningDate: new Date(parsed.joiningDate),
@@ -101,6 +113,13 @@ export async function updateEmployee(id: string, formData: FormData) {
         shiftId: parsed.shiftId || null,
         status: statusVal,
       },
+    });
+
+    await logAuditAction({
+      action: "EMPLOYEE_UPDATE",
+      entity: "Employee",
+      entityId: updated.id,
+      metadata: { employeeCode: updated.employeeCode, status: statusVal },
     });
 
     revalidatePath("/employees");
@@ -118,15 +137,22 @@ export async function updateEmployee(id: string, formData: FormData) {
 
 export async function toggleEmployeeStatus(id: string, currentStatus: EmployeeStatus) {
   try {
-    const nextStatus = currentStatus === EmployeeStatus.ACTIVE ? EmployeeStatus.INACTIVE : EmployeeStatus.ACTIVE;
-    await db.employee.update({
+    const newStatus = currentStatus === EmployeeStatus.ACTIVE ? EmployeeStatus.INACTIVE : EmployeeStatus.ACTIVE;
+    const updated = await db.employee.update({
       where: { id },
-      data: { status: nextStatus },
+      data: { status: newStatus },
+    });
+
+    await logAuditAction({
+      action: "EMPLOYEE_STATUS_TOGGLE",
+      entity: "Employee",
+      entityId: updated.id,
+      metadata: { employeeCode: updated.employeeCode, previousStatus: currentStatus, newStatus },
     });
 
     revalidatePath("/employees");
     revalidatePath("/dashboard");
-    return { success: true };
+    return { success: true, newStatus };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Failed to toggle status";
     return { success: false, error: message };

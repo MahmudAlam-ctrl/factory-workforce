@@ -41,22 +41,24 @@ model Shift {
 }
 
 model Employee {
-  id                String             @id @default(cuid())
-  employeeCode      String             @unique
+  id                String                   @id @default(cuid())
+  employeeCode      String                   @unique
   firstName         String
   lastName          String
-  department        String             // Cutting, Sewing, Finishing, Quality, Maintenance, Admin
-  designation       String             // Operator, Helper, Supervisor, Quality Inspector
-  joiningDate       DateTime           @default(now())
-  status            EmployeeStatus     @default(ACTIVE)
-  baseSalary        Decimal            @db.Decimal(10, 2) // Monthly base salary
-  hourlyRate        Decimal            @db.Decimal(10, 2) // Overtime calculation hourly rate
+  phone             String?
+  department        String                   // Cutting, Sewing, Finishing, Quality, Maintenance, Admin
+  designation       String                   // Operator, Helper, Supervisor, Quality Inspector
+  joiningDate       DateTime                 @default(now())
+  status            EmployeeStatus           @default(ACTIVE)
+  baseSalary        Decimal                  @db.Decimal(10, 2) // Monthly base salary
+  hourlyRate        Decimal                  @db.Decimal(10, 2) // Overtime calculation hourly rate
   shiftId           String?
-  shift             Shift?             @relation(fields: [shiftId], references: [id])
+  shift             Shift?                   @relation(fields: [shiftId], references: [id])
   attendanceRecords AttendanceRecord[]
   payrollSummaries  PayrollSummary[]
-  createdAt         DateTime           @default(now())
-  updatedAt         DateTime           @updatedAt
+  deviceMappings    AttendanceDeviceMapping[]
+  createdAt         DateTime                 @default(now())
+  updatedAt         DateTime                 @updatedAt
 
   @@index([department])
   @@index([status])
@@ -74,6 +76,7 @@ model AttendanceRecord {
   status        AttendanceStatus @default(PRESENT)
   regularHours  Decimal          @default(0.0) @db.Decimal(5, 2)
   overtimeHours Decimal          @default(0.0) @db.Decimal(5, 2)
+  source        String           @default("MANUAL") // MANUAL, ZKTECO, IMPORTED, SYSTEM
   remarks       String?
   createdAt     DateTime         @default(now())
   updatedAt     DateTime         @updatedAt
@@ -81,6 +84,7 @@ model AttendanceRecord {
   @@unique([employeeId, date])
   @@index([date])
   @@index([employeeId])
+  @@index([source])
 }
 
 model PayrollSummary {
@@ -94,8 +98,9 @@ model PayrollSummary {
   absentDays         Int           @default(0)
   totalRegularHours  Decimal       @default(0.0) @db.Decimal(6, 2)
   totalOvertimeHours Decimal       @default(0.0) @db.Decimal(6, 2)
+  overtimeMultiplier Decimal       @default(1.50) @db.Decimal(4, 2)
   basePay            Decimal       @db.Decimal(10, 2)
-  overtimePay        Decimal       @db.Decimal(10, 2) // Calculated using 2.0x industrial OT multiplier
+  overtimePay        Decimal       @db.Decimal(10, 2) // Calculated using 1.5x standard OT multiplier
   deductions         Decimal       @default(0.0) @db.Decimal(10, 2)
   netPay             Decimal       @db.Decimal(10, 2)
   status             PayrollStatus @default(DRAFT)
@@ -105,4 +110,136 @@ model PayrollSummary {
   @@unique([employeeId, year, month])
   @@index([year, month])
   @@index([employeeId])
+}
+
+model PayrollRule {
+  id                     String   @id @default(cuid())
+  overtimeMultiplier     Decimal  @default(1.50) @db.Decimal(4, 2)
+  standardDailyHours     Decimal  @default(8.00) @db.Decimal(4, 2)
+  standardWorkingDays    Int      @default(26)
+  gracePeriodMinutes     Int      @default(15)
+  breakDurationMinutes   Int      @default(60)
+  currency               String   @default("BDT")
+  currencySymbol         String   @default("৳")
+  effectiveFrom          DateTime @default(now())
+  isActive               Boolean  @default(true)
+  remarks                String?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  @@index([isActive])
+}
+
+model AttendanceDevice {
+  id                  String                    @id @default(cuid())
+  name                String
+  deviceType          String                    @default("ZKTECO") // ZKTECO, MOCK
+  model               String?
+  ipAddress           String
+  port                Int                       @default(4370)
+  commKey             String?
+  serialNumber        String?
+  timezone            String                    @default("Asia/Dhaka")
+  isEnabled           Boolean                   @default(true)
+  isMockMode          Boolean                   @default(false)
+  syncIntervalMinutes Int                       @default(60)
+  connectionStatus    String                    @default("DISCONNECTED") // CONNECTED, DISCONNECTED, ERROR
+  lastSyncTime        DateTime?
+  lastSyncResult      String?
+  lastSyncCount       Int                       @default(0)
+  failedSyncCount     Int                       @default(0)
+  createdAt           DateTime                  @default(now())
+  updatedAt           DateTime                  @updatedAt
+  mappings            AttendanceDeviceMapping[]
+  punches             AttendancePunchRaw[]
+  syncLogs            AttendanceSyncLog[]
+}
+
+model AttendanceDeviceMapping {
+  id           String           @id @default(cuid())
+  deviceId     String
+  device       AttendanceDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  deviceUserId String
+  employeeId   String?
+  employee     Employee?        @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+  notes        String?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  @@unique([deviceId, deviceUserId])
+  @@index([employeeId])
+}
+
+model AttendancePunchRaw {
+  id           String           @id @default(cuid())
+  deviceId     String
+  device       AttendanceDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  deviceUserId String
+  punchTime    DateTime
+  punchType    String?          // CHECK_IN, CHECK_OUT, BREAK_OUT, BREAK_IN
+  verifyType   String?          // FINGERPRINT, CARD, PASSWORD, FACE
+  isProcessed  Boolean          @default(false)
+  processedAt  DateTime?
+  eventKey     String           @unique
+  rawPayload   String?
+  createdAt    DateTime         @default(now())
+
+  @@index([punchTime])
+  @@index([deviceUserId])
+  @@index([isProcessed])
+}
+
+model AttendanceSyncLog {
+  id               String           @id @default(cuid())
+  deviceId         String
+  device           AttendanceDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  status           String           // SUCCESS, FAILURE, PARTIAL
+  punchesFetched   Int              @default(0)
+  punchesProcessed Int              @default(0)
+  errorMessage     String?
+  startedAt        DateTime         @default(now())
+  completedAt      DateTime?
+}
+
+model EmployeeImport {
+  id              String              @id @default(cuid())
+  fileName        String
+  fileSize        Int
+  totalRows       Int                 @default(0)
+  successfulRows  Int                 @default(0)
+  failedRows      Int                 @default(0)
+  skippedRows     Int                 @default(0)
+  createdCount    Int                 @default(0)
+  updatedCount    Int                 @default(0)
+  status          String              @default("PREVIEW") // PREVIEW, COMMITTED, FAILED
+  importMode      String              @default("ADD_AND_UPDATE") // ADD_ONLY, ADD_AND_UPDATE, VALIDATE_ONLY
+  errorReport     String?
+  createdAt       DateTime            @default(now())
+  rows            EmployeeImportRow[]
+}
+
+model EmployeeImportRow {
+  id              String         @id @default(cuid())
+  importId        String
+  import          EmployeeImport @relation(fields: [importId], references: [id], onDelete: Cascade)
+  rowNumber       Int
+  rawData         String
+  cleanedData     String
+  employeeCode    String?
+  status          String         // VALID, WARNING, INVALID, DUPLICATE, IMPORTED, FAILED
+  validationNotes String?
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  action    String   // EMPLOYEE_CREATE, EMPLOYEE_UPDATE, EMPLOYEE_IMPORT, ATTENDANCE_EDIT, ZKTECO_SYNC, DEVICE_CONFIG, PAYROLL_RULE_UPDATE, PAYROLL_RECALCULATE, PAYROLL_LOCK, EXPORT
+  entity    String   // Employee, AttendanceRecord, PayrollSummary, PayrollRule, AttendanceDevice
+  entityId  String?
+  actor     String   @default("Admin")
+  metadata  String?  // JSON formatted details
+  createdAt DateTime @default(now())
+
+  @@index([action])
+  @@index([entity])
+  @@index([createdAt])
 }

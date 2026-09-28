@@ -2,6 +2,7 @@
 
 import { db } from "@/lib/db";
 import { calculateAttendanceHoursAndStatus } from "@/services/attendance.service";
+import { logAuditAction } from "@/services/audit.service";
 import { AttendanceStatus } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
@@ -12,6 +13,7 @@ const AttendanceItemSchema = z.object({
   status: z.nativeEnum(AttendanceStatus),
   checkInTime: z.string().optional().nullable(),
   checkOutTime: z.string().optional().nullable(),
+  source: z.string().default("MANUAL"),
   remarks: z.string().optional().nullable(),
 });
 
@@ -28,6 +30,7 @@ export async function saveBulkAttendance(data: {
     status: AttendanceStatus;
     checkInTime?: string | null;
     checkOutTime?: string | null;
+    source?: string;
     remarks?: string | null;
   }>;
 }) {
@@ -66,6 +69,7 @@ export async function saveBulkAttendance(data: {
           status: calc.status,
           regularHours: calc.regularHours,
           overtimeHours: calc.overtimeHours,
+          source: rec.source || "MANUAL",
           remarks: rec.remarks || null,
         },
         update: {
@@ -75,12 +79,22 @@ export async function saveBulkAttendance(data: {
           status: calc.status,
           regularHours: calc.regularHours,
           overtimeHours: calc.overtimeHours,
+          source: rec.source || "MANUAL",
           remarks: rec.remarks || null,
         },
       });
     });
 
     await db.$transaction(upsertOperations);
+
+    await logAuditAction({
+      action: "ATTENDANCE_BULK_SAVE",
+      entity: "AttendanceRecord",
+      metadata: {
+        date: parsed.dateStr,
+        recordsUpdated: upsertOperations.length,
+      },
+    });
 
     revalidatePath("/attendance");
     revalidatePath("/dashboard");
