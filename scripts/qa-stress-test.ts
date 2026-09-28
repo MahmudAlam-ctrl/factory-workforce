@@ -365,11 +365,10 @@ async function runTests() {
   }
 
   // ---------------------------------------------------------------------------
-  // TEST 7: Biometric ZKTeco Adapter & Device Sync Engine
+  // TEST 7: Biometric ZKTeco Multi-Interval Sync (No Clobbering)
   // ---------------------------------------------------------------------------
-  console.log("[RUNNING] Test 7: Biometric ZKTeco Adapter & Device Sync Engine...");
+  console.log("[RUNNING] Test 7: Biometric ZKTeco Multi-Interval Sync (No Clobbering)...");
   try {
-    // 1. Create or get test biometric device configured with mock mode enabled
     let testDevice = await db.attendanceDevice.findFirst({
       where: { ipAddress: "192.168.1.201" },
     });
@@ -388,7 +387,6 @@ async function runTests() {
       });
     }
 
-    // 2. Ensure test mapping exists for EMP-1001
     await db.attendanceDeviceMapping.upsert({
       where: {
         deviceId_deviceUserId: {
@@ -404,39 +402,102 @@ async function runTests() {
       },
     });
 
-    // 3. Test adapter connection
-    const { getDeviceAdapter, syncDeviceAttendance } = await import("../src/services/devices/device.service");
-    const adapter = getDeviceAdapter(testDevice);
-    const connResult = await adapter.testConnection(testDevice);
+    const { syncDeviceAttendance } = await import("../src/services/devices/device.service");
 
-    // 4. Run sync
-    const syncResult = await syncDeviceAttendance(testDevice.id);
+    const testNoClobberDateStr = "2026-12-15";
+    const testDate = new Date(`${testNoClobberDateStr}T00:00:00.000Z`);
 
-    // 5. Verify staging records and source tagging
-    const stagedPunches = await db.attendancePunchRaw.findMany({
-      where: { deviceId: testDevice.id },
+    // Clean up any test records for this test date
+    await db.attendanceRecord.deleteMany({
+      where: { employeeId: testEmp.id, date: testDate },
+    });
+    await db.attendancePunchRaw.deleteMany({
+      where: { deviceId: testDevice.id, deviceUserId: "1001" },
     });
 
-    const passed =
-      connResult.success &&
-      connResult.isMock === true &&
-      syncResult.success &&
-      stagedPunches.length > 0;
+    // Step A: Stage morning punch (08:00)
+    const morningPunchTime = new Date(`${testNoClobberDateStr}T08:00:00.000Z`);
+    await db.attendancePunchRaw.create({
+      data: {
+        deviceId: testDevice.id,
+        deviceUserId: "1001",
+        punchTime: morningPunchTime,
+        punchType: "0",
+        eventKey: `${testDevice.id}_1001_${morningPunchTime.toISOString()}`,
+        isProcessed: false,
+      },
+    });
+
+    // Sync Morning punch
+    await syncDeviceAttendance(testDevice.id);
+
+    const morningRec = await db.attendanceRecord.findUnique({
+      where: {
+        employeeId_date: {
+          employeeId: testEmp.id,
+          date: testDate,
+        },
+      },
+    });
+
+    const morningSavedCorrectly = morningRec !== null && morningRec.checkIn !== null && morningRec.checkOut === null;
+
+    // Step B: Stage evening punch (17:30) separately in a later sync interval
+    const eveningPunchTime = new Date(`${testNoClobberDateStr}T17:30:00.000Z`);
+    await db.attendancePunchRaw.create({
+      data: {
+        deviceId: testDevice.id,
+        deviceUserId: "1001",
+        punchTime: eveningPunchTime,
+        punchType: "1",
+        eventKey: `${testDevice.id}_1001_${eveningPunchTime.toISOString()}`,
+        isProcessed: false,
+      },
+    });
+
+    // Sync Evening punch
+    await syncDeviceAttendance(testDevice.id);
+
+    const eveningRec = await db.attendanceRecord.findUnique({
+      where: {
+        employeeId_date: {
+          employeeId: testEmp.id,
+          date: testDate,
+        },
+      },
+    });
+
+    // Verify morning checkIn was NOT overwritten or erased!
+    const eveningSavedCorrectly =
+      eveningRec !== null &&
+      eveningRec.checkIn !== null &&
+      eveningRec.checkOut !== null &&
+      eveningRec.checkIn.toISOString() === morningRec?.checkIn?.toISOString();
+
+    // Clean up test records
+    await db.attendanceRecord.deleteMany({
+      where: { employeeId: testEmp.id, date: testDate },
+    });
+    await db.attendancePunchRaw.deleteMany({
+      where: { deviceId: testDevice.id, deviceUserId: "1001" },
+    });
+
+    const passed = Boolean(morningSavedCorrectly && eveningSavedCorrectly);
 
     results.push({
       id: 7,
-      name: "ZKTeco Biometric Adapter & Sync Engine",
-      expected: "Mock testConnection passes; sync stages raw punches with eventKey deduplication",
+      name: "ZKTeco Biometric Multi-Interval Sync (No Clobbering)",
+      expected: "Evening punch sync preserves morning check-in and updates check-out without erasing",
       actual: passed
-        ? `Connected (isMock=${connResult.isMock}). Staged ${stagedPunches.length} raw punches, synced ${syncResult.punchesProcessed} records.`
-        : `Failed: ConnSuccess=${connResult.success}, SyncSuccess=${syncResult.success}`,
+        ? `Morning checkIn preserved (${eveningRec?.checkIn?.toISOString()}), evening checkOut registered (${eveningRec?.checkOut?.toISOString()}). Source=${eveningRec?.source}`
+        : `Failed: morningSaved=${morningSavedCorrectly}, eveningSaved=${eveningSavedCorrectly}`,
       passed,
     });
   } catch (e: any) {
     results.push({
       id: 7,
-      name: "ZKTeco Biometric Adapter & Sync Engine",
-      expected: "Mock testConnection passes; sync stages raw punches",
+      name: "ZKTeco Biometric Multi-Interval Sync (No Clobbering)",
+      expected: "Preserve morning check-in on evening sync",
       actual: `Error: ${e.message}`,
       passed: false,
     });
@@ -489,6 +550,124 @@ async function runTests() {
   }
 
   // ---------------------------------------------------------------------------
+  // TEST 9: Real Excel (.xlsx) & Vector PDF Export Generation
+  // ---------------------------------------------------------------------------
+  console.log("[RUNNING] Test 9: Real Excel (.xlsx) & Vector PDF Export Generation...");
+  try {
+    const { generateEmployeesExcel } = await import("../src/services/export-excel.service");
+    const { generateEmployeesPdf } = await import("../src/services/export-pdf.service");
+
+    const employees = await db.employee.findMany({ take: 5, include: { shift: true } });
+
+    // 1. Generate Excel Buffer
+    const excelBuffer = await generateEmployeesExcel(employees);
+    const validExcel = Buffer.isBuffer(excelBuffer) && excelBuffer.length > 2000;
+
+    // 2. Generate PDF Buffer
+    const pdfBuffer = await generateEmployeesPdf(employees);
+    const pdfHeader = pdfBuffer.slice(0, 5).toString("utf-8"); // Should start with "%PDF-"
+    const validPdf = Buffer.isBuffer(pdfBuffer) && pdfBuffer.length > 2000 && pdfHeader.startsWith("%PDF-");
+
+    const passed = Boolean(validExcel && validPdf);
+
+    results.push({
+      id: 9,
+      name: "Real Excel (.xlsx) & Vector PDF Export Generation",
+      expected: "Generate valid .xlsx buffer (>2KB) and valid %PDF- vector buffer (>2KB)",
+      actual: passed
+        ? `Excel size=${excelBuffer.length} bytes; PDF size=${pdfBuffer.length} bytes (Magic: "${pdfHeader}")`
+        : `Failed: validExcel=${validExcel} (${excelBuffer.length}b), validPdf=${validPdf} (${pdfBuffer.length}b)`,
+      passed,
+    });
+  } catch (e: any) {
+    results.push({
+      id: 9,
+      name: "Real Excel (.xlsx) & Vector PDF Export Generation",
+      expected: "Generate valid Excel and PDF files",
+      actual: `Error: ${e.message}`,
+      passed: false,
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // TEST 10: Python Employee Data Cleaning Pipeline (pandas & NumPy)
+  // ---------------------------------------------------------------------------
+  console.log("[RUNNING] Test 10: Python Employee Data Cleaning Pipeline (pandas & NumPy)...");
+  try {
+    const ExcelJSModule = await import("exceljs");
+    const ExcelJS = (ExcelJSModule as any).default || ExcelJSModule;
+    const os = await import("os");
+    const path = await import("path");
+    const fs = await import("fs");
+    const { runPythonCleaningPipeline } = await import("../src/services/import-employee.service");
+
+    // Create a temporary test Excel workbook with messy columns and dirty whitespace
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet("Workers");
+    sheet.columns = [
+      { header: "emp_id", key: "code" },
+      { header: "First Name", key: "first" },
+      { header: "LAST_NAME", key: "last" },
+      { header: "DEPARTMENT", key: "dept" },
+      { header: "Designation", key: "desig" },
+      { header: "Basic Salary", key: "salary" },
+      { header: "Hourly Rate", key: "rate" },
+      { header: "Joining Date", key: "doj" },
+    ];
+
+    sheet.addRow({
+      code: "EMP-TEST-99",
+      first: "  Rahim  ",
+      last: "khan",
+      dept: "sewing",
+      desig: "Operator",
+      salary: "৳ 14,500.00",
+      rate: "69.71",
+      doj: "2024-01-15",
+    });
+
+    const tempFilePath = path.join(os.tmpdir(), `test_emp_import_${Date.now()}.xlsx`);
+    await workbook.xlsx.writeFile(tempFilePath);
+
+    const cleanResult = await runPythonCleaningPipeline(tempFilePath);
+
+    // Clean up temp file
+    if (fs.existsSync(tempFilePath)) {
+      fs.unlinkSync(tempFilePath);
+    }
+
+    const row = cleanResult.rows[0];
+    const passed = Boolean(
+      cleanResult.success &&
+      cleanResult.totalRows === 1 &&
+      row &&
+      row.cleanedData.employeeCode === "EMP-TEST-99" &&
+      row.cleanedData.firstName === "Rahim" &&
+      row.cleanedData.lastName === "Khan" &&
+      row.cleanedData.department === "Sewing" &&
+      row.cleanedData.baseSalary === 14500
+    );
+
+    results.push({
+      id: 10,
+      name: "Python Employee Data Cleaning Pipeline",
+      expected: "Python cleans whitespace, title-cases, parses ৳14,500 salary to 14500, validates row",
+      actual: passed
+        ? `Cleaned: Name="${row.cleanedData.firstName} ${row.cleanedData.lastName}", Dept="${row.cleanedData.department}", Salary=${row.cleanedData.baseSalary}, Status=${row.status}`
+        : `Failed: ResultSuccess=${cleanResult.success}, CleanedData=${JSON.stringify(row?.cleanedData)}, Notes=${JSON.stringify(row?.validationNotes)}`,
+      passed,
+    });
+  } catch (e: any) {
+    results.push({
+      id: 10,
+      name: "Python Employee Data Cleaning Pipeline",
+      expected: "Clean data via Python subprocess",
+      actual: `Error: ${e.message}`,
+      passed: false,
+    });
+  }
+
+  // ---------------------------------------------------------------------------
   // PRINT VERDICT TABLE
   // ---------------------------------------------------------------------------
   console.log("\n================================================================================");
@@ -504,7 +683,7 @@ async function runTests() {
   }
 
   const allPassed = results.every((r) => r.passed);
-  console.log(`\nFINAL VERDICT: ${allPassed ? "ALL 8 TESTS PASSED (100%)" : "SOME TESTS FAILED"}\n`);
+  console.log(`\nFINAL VERDICT: ${allPassed ? "ALL 10 TESTS PASSED (100%)" : "SOME TESTS FAILED"}\n`);
 
   if (!allPassed) {
     process.exit(1);

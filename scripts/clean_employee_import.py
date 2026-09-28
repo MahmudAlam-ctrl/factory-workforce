@@ -1,8 +1,13 @@
 import sys
+import io
 import json
 import argparse
 import re
 from datetime import datetime
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
 import pandas as pd
 import numpy as np
 
@@ -26,14 +31,18 @@ def guess_column_mapping(columns):
     mapping = {}
     cleaned_cols = {col: re.sub(r'[^a-z0-9]', '', str(col).lower()) for col in columns}
     
-    for field, aliases in SYNONYMS.items():
-        for col, col_clean in cleaned_cols.items():
+    for col, col_clean in cleaned_cols.items():
+        for field, aliases in SYNONYMS.items():
+            if field in mapping.values():
+                continue
+            matched = False
             for alias in aliases:
                 alias_clean = re.sub(r'[^a-z0-9]', '', alias)
                 if col_clean == alias_clean:
                     mapping[col] = field
+                    matched = True
                     break
-            if col in mapping:
+            if matched:
                 break
     return mapping
 
@@ -111,10 +120,13 @@ def clean_excel(file_path, custom_mapping=None):
             warnings.append("Missing First Name; defaulted to 'Worker'")
         if not last_name:
             last_name = "."
+
+        first_name = first_name.title()
+        last_name = last_name.title()
             
         # Department & Designation
-        dept = str(get_val("department") or "").strip() or "Sewing"
-        designation = str(get_val("designation") or "").strip() or "Operator"
+        dept = (str(get_val("department") or "").strip() or "Sewing").title()
+        designation = (str(get_val("designation") or "").strip() or "Operator").title()
         
         # Phone
         raw_phone = get_val("phone")

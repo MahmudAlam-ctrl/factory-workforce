@@ -131,14 +131,69 @@ export async function syncDeviceAttendance(deviceId: string) {
       const employee = userToEmpMap.get(punchGroup[0].deviceUserId)!;
       const targetDate = new Date(`${dateStr}T00:00:00.000Z`);
 
-      // First punch of day is check-in, last punch is check-out
-      const firstPunch = punchGroup[0].punchTime;
-      const lastPunch = punchGroup.length > 1 ? punchGroup[punchGroup.length - 1].punchTime : null;
+      const dayStart = new Date(`${dateStr}T00:00:00.000Z`);
+      const dayEnd = new Date(`${dateStr}T23:59:59.999Z`);
+
+      // Query all existing punches for that employee on that date across the device
+      const allDayPunches = await db.attendancePunchRaw.findMany({
+        where: {
+          deviceId: device.id,
+          deviceUserId: punchGroup[0].deviceUserId,
+          punchTime: {
+            gte: dayStart,
+            lte: dayEnd,
+          },
+        },
+        orderBy: { punchTime: "asc" },
+      });
+
+      // Also read any existing AttendanceRecord to preserve earlier check-ins or manual adjustments
+      const existingRecord = await db.attendanceRecord.findUnique({
+        where: {
+          employeeId_date: {
+            employeeId: employee.id,
+            date: targetDate,
+          },
+        },
+      });
+
+      // Determine earliest punch / check-in across raw punches and existing record
+      const earliestRaw = allDayPunches.length > 0 ? allDayPunches[0].punchTime : null;
+      let earliestCheckIn: Date | null = earliestRaw;
+
+      if (existingRecord?.checkIn) {
+        if (!earliestCheckIn || existingRecord.checkIn < earliestCheckIn) {
+          earliestCheckIn = existingRecord.checkIn;
+        }
+      }
+
+      // Determine latest punch / check-out across raw punches and existing record
+      const latestRaw = allDayPunches.length > 1 ? allDayPunches[allDayPunches.length - 1].punchTime : null;
+      let latestCheckOut: Date | null = latestRaw;
+
+      // If only 1 punch exists in raw punches, but an earlier check-in already existed,
+      // that single raw punch is an afternoon/evening check-out!
+      if (allDayPunches.length === 1 && existingRecord?.checkIn) {
+        if (allDayPunches[0].punchTime > existingRecord.checkIn) {
+          latestCheckOut = allDayPunches[0].punchTime;
+        }
+      }
+
+      if (existingRecord?.checkOut) {
+        if (!latestCheckOut || existingRecord.checkOut > latestCheckOut) {
+          latestCheckOut = existingRecord.checkOut;
+        }
+      }
+
+      // Guard: if latestCheckOut is not later than earliestCheckIn, checkOut is null
+      if (earliestCheckIn && latestCheckOut && latestCheckOut.getTime() <= earliestCheckIn.getTime()) {
+        latestCheckOut = null;
+      }
 
       const formatHHmm = (d: Date) => format(d, "HH:mm");
 
-      const checkInTimeStr = formatHHmm(firstPunch);
-      const checkOutTimeStr = lastPunch ? formatHHmm(lastPunch) : null;
+      const checkInTimeStr = earliestCheckIn ? formatHHmm(earliestCheckIn) : null;
+      const checkOutTimeStr = latestCheckOut ? formatHHmm(latestCheckOut) : null;
 
       const calc = calculateAttendanceHoursAndStatus({
         dateStr,
