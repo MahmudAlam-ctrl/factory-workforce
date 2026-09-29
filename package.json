@@ -5,6 +5,10 @@
   "scripts": {
     "dev": "next dev",
     "build": "prisma generate && next build",
+    "predeploy": "npm run build",
+    "deploy": "wrangler deploy",
+    "pages:build": "prisma generate && next build",
+    "pages:deploy": "wrangler pages deploy .next/static",
     "start": "next start",
     "lint": "next lint",
     "db:push": "prisma db push",
@@ -26,6 +30,7 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@cloudflare/next-on-pages": "^1.13.16",
     "@types/node": "^20.17.19",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",

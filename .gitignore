@@ -31,5 +31,10 @@ Thumbs.db
 /bin/
 *.exe
 
+# Cloudflare / Vercel outputs
+.wrangler/
+.open-next/
+.vercel/
+
 .vscode/
 .idea/

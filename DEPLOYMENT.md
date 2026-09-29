@@ -6,39 +6,56 @@ This guide explains how to deploy **FactoryWorkforce** to the cloud via GitHub, 
 
 ## 1. Push to GitHub
 
-Ensure all your latest changes are pushed to your remote GitHub repository:
+Ensure all your latest changes are pushed to your remote GitHub repository (`main` branch):
 
 ```bash
 git add -A
-git commit -m "chore: prepare production cloud deployment configuration"
-git branch -M master
-git remote add origin https://github.com/<YOUR_GITHUB_USERNAME>/factory-workforce.git
-git push -u origin master
+git commit -m "chore: configure Cloudflare Workers assets and build scripts"
+git push -u origin main
 ```
 
 ---
 
-## 2. Deploying to Cloudflare Pages via GitHub
+## 2. Deploying to Cloudflare via CLI or GitHub
+
+### Method A: Deploy via Wrangler CLI
+
+You can deploy directly from your local terminal with one command:
+
+```bash
+# This automatically runs `npm run build` then deploys to Cloudflare
+npm run deploy
+```
+
+Or deploy to Cloudflare Pages directly via CLI:
+
+```bash
+npm run pages:deploy
+```
+
+---
+
+### Method B: Deploying to Cloudflare Pages via GitHub
 
 Cloudflare Pages automatically builds and deploys your Next.js application on every `git push`.
 
-### Step 1: Connect GitHub in Cloudflare Dashboard
+#### Step 1: Connect GitHub in Cloudflare Dashboard
 1. Log in to your [Cloudflare Dashboard](https://dash.cloudflare.com/).
 2. In the left sidebar, navigate to **Compute (Workers & Pages)** > **Create application** > **Pages** tab.
 3. Click **Connect to Git**.
 4. Select your GitHub account and choose the **`factory-workforce`** repository.
 5. Click **Begin setup**.
 
-### Step 2: Configure Build Settings
+#### Step 2: Configure Build Settings
 Fill in the configuration fields:
 
 | Setting | Value |
 | :--- | :--- |
 | **Project name** | `factory-workforce` |
-| **Production branch** | `master` (or `main`) |
+| **Production branch** | `main` |
 | **Framework preset** | `Next.js` |
 | **Build command** | `npm run build` |
-| **Build output directory** | `.next` |
+| **Build output directory** | `.next/static` |
 | **Root directory** | `/` |
 
 ### Step 3: Add Environment Variables
