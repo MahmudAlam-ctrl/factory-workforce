@@ -88,7 +88,10 @@ export default async function DevicesPage() {
         </div>
       </div>
 
-      <DeviceManager devices={devices} employees={allEmployees} />
+      <DeviceManager
+        devices={JSON.parse(JSON.stringify(devices))}
+        employees={JSON.parse(JSON.stringify(allEmployees))}
+      />
     </div>
   );
 }

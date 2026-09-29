@@ -31,7 +31,7 @@ export default async function EmployeesPage() {
       </div>
 
       <EmployeeTable
-        employees={employees}
+        employees={JSON.parse(JSON.stringify(employees))}
         departments={DEPARTMENTS}
       />
     </div>

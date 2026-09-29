@@ -1,4 +1,4 @@
-﻿# Node modules
+# Node modules
 node_modules/
 /.pnp
 .pnp.js
@@ -27,5 +27,9 @@ yarn-error.log*
 .DS_Store
 *.pem
 Thumbs.db
+# Local binaries
+/bin/
+*.exe
+
 .vscode/
 .idea/
